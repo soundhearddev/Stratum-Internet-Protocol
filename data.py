@@ -1,7 +1,7 @@
 import socket
 import struct
 
-HOST = "2003:102:ef1b:fb77:68ed:301:6fd:397"  
+HOST = ""  
 PORT = 5000
 HEADER_FORMAT = "!Q I"
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)

@@ -6,54 +6,19 @@ import socket
 import json
 import sys
 from pathlib import Path
+from utils import build_packet, parse_packet
+import registry
 
 REGISTRY_FILE = "./local_registry.json"
 DEFAULT_PORT  = 9999
-MAGIC         = b"MESH"
-
-# ----------------------------
-# Registry
-# ----------------------------
-def load_registry() -> dict:
-    if Path(REGISTRY_FILE).exists():
-        return json.loads(Path(REGISTRY_FILE).read_text())
-    return {}
-
-def register_peer(name: str, mesh_addr: str, real_ipv6: str, port: int = DEFAULT_PORT):
-    reg = load_registry()
-    reg[name] = {"address": mesh_addr, "ipv6": real_ipv6, "port": port}
-    Path(REGISTRY_FILE).write_text(json.dumps(reg, indent=2))
-    print(f"[+] {name} → mesh:{mesh_addr[:16]}...  real:{real_ipv6}")
-
-def resolve(name: str) -> dict | None:
-    return load_registry().get(name)
-
-def resolve_by_mesh(mesh_addr: str) -> dict | None:
-    for name, entry in load_registry().items():
-        if entry["address"] == mesh_addr:
-            return entry
-    return None
-
-# ----------------------------
-# Packet
-# Format: MESH + src_mesh(16B) + dst_mesh(16B) + payload_len(2B) + payload
-# ----------------------------
 
 
-def parse_packet(data: bytes) -> dict | None:
-    if len(data) < 36 or data[:4] != MAGIC:
-        return None
-    src     = data[4:20].hex()
-    dst     = data[20:36].hex()
-    length  = int.from_bytes(data[36:38], "big")
-    payload = data[38:38 + length]
-    return {"src": src, "dst": dst, "payload": payload}
 
 # ----------------------------
 # Senden: mesh-Name → echte IPv6 aus Registry → UDP
 # ----------------------------
 def send(src_mesh: str, dst_name: str, payload: bytes):
-    peer = resolve(dst_name)
+    peer = registry.resolve(dst_name)
     if not peer:
         raise ValueError(f"Unbekannt: {dst_name}")
 
@@ -82,8 +47,8 @@ def listen(port: int = DEFAULT_PORT):
                 print(f"[!] Ungültiges Paket von {addr[0]}")
                 continue
 
-            peer = resolve_by_mesh(pkt["src"])
-            name = next((n for n, e in load_registry().items()
+            peer = registry.resolve_by_mesh(pkt["src"])
+            name = next((n for n, e in registry.load_registry().items()
                          if e["address"] == pkt["src"]), "unbekannt")
 
             print(f"[<] Von {addr[0]} (mesh: {name})")
@@ -93,12 +58,12 @@ def listen(port: int = DEFAULT_PORT):
 # CLI
 # ----------------------------
 if __name__ == "__main__":
-    reg = load_registry()
+    reg = registry.load_registry()
 
     if "--register" in sys.argv:
         # python overlay.py --register homeserver.mesh fbfe3f0f... 2a01:4f8::1
         i = sys.argv.index("--register")
-        register_peer(sys.argv[i+1], sys.argv[i+2], sys.argv[i+3])
+        registry.register_peer(sys.argv[i+1], sys.argv[i+2], sys.argv[i+3])
 
     elif "--listen" in sys.argv:
         listen()

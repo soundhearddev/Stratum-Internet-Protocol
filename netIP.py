@@ -149,6 +149,24 @@ def derive_address(master_secret: bytes, index: bytes, nonce: bytes) -> str:
     msg = len(index).to_bytes(2, "big") + index + nonce
     return hmac.new(master_secret, msg, hashlib.sha256).hexdigest()[:HMAC_DERIVE_LENGTH]
 
+def gen_id(pub_bytes: bytes, length: int = 32) -> str:
+    """
+    Erzeugt eine zufällige, vom Public Key abgeleitete Adresse
+    und kürzt sie auf die gewünschte Länge.
+
+    Kein Privileg- oder Dateizugriff nötig.
+    """
+    if length <= 0:
+        raise ValueError("length muss > 0 sein")
+    if len(pub_bytes) != ED25519_KEY_SIZE:
+        raise ValueError("Ungültige Public-Key-Länge")
+
+    nonce = secrets.token_bytes(16)  # sorgt für Zufälligkeit
+    digest = hashlib.sha256(pub_bytes + nonce).hexdigest()
+
+    return digest[:length]
+
+
 # ----------------------------
 # Beispiel-Nutzung
 # FIX: os.urandom(32) statt gethostname() als Master-Secret

@@ -1,7 +1,7 @@
 import socket
 import sys
 
-HOST = "2003:102:ef1b:fb77:68ed:301:6fd:397"  
+HOST = ""  
 PORT = 5005
 
 # Erstellt den IPv6 TCP Socket

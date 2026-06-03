@@ -4,6 +4,8 @@ import os
 import sys
 import re
 from socket import gethostname
+import hashlib
+import time
 
 def run(cmd):
     return subprocess.run(cmd, capture_output=True, text=True)
@@ -106,7 +108,10 @@ def add_address(iface: str, addr: str, ttl: int = None) -> bool:
 
 
 
-
+def gen_conn_id(pub_bytes: bytes, ts: int) -> int:
+    data = pub_bytes + ts.to_bytes(8, "big")
+    digest = hashlib.sha256(data).digest()
+    return int.from_bytes(digest[:8], "big")
 
 
 REGISTRY_FILE = "./local_registry.json"
