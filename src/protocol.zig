@@ -4,45 +4,33 @@ const std = @import("std");
 pub const Command = enum(u8) {
     discovery = 0x01,
 
-    /// Data: generic data transfer (user-defined content)
+    /// Data: generic data transfer
     /// Payload: arbitrary bytes, application-specific interpretation
     Data = 0x02,
 
-    /// DataChunk: Teil eines mehrteiligen Datentransfers (nicht der letzte Chunk)
+    /// DataChunk: part of a multipart data transfer
     /// Payload: arbitrary bytes
     DataChunk = 0x03,
 
-    /// DataEnd: letzter Chunk eines mehrteiligen Datentransfers
-    /// Payload: arbitrary bytes (kann auch leer sein, falls vorheriger Chunk exakt aufging)
+    /// DataEnd: final chunk of a multipart data transfer
+    /// Payload: arbitrary bytes
     DataEnd = 0x04,
 
-    /// Execute: request to execute a command/script on the remote side
-    /// Payload: [cmd_len:u16][cmd:[]u8]
+    /// Execute: invocation of an action
+    /// Payload: actions.ActionRequest in wire format
     Execute = 0x05,
 
     /// Keepalive: heartbeat to prevent timeout
-    /// Payload: empty (or optional timestamp)
+    /// Payload: empty
     Keepalive = 0x06,
 
     /// Flush: signal to flush/commit any pending operations
-    /// Payload: empty (or optional metadata)
+    /// Payload: empty
     Flush = 0x07,
 
     /// Close: signal to close connection/stream gracefully
-    /// Payload: empty (or optional reason/code)
+    /// Payload: empty
     Close = 0x08,
-
-    /// ReadFile: request to read a file from the remote side
-    /// Payload: path (null-terminated string, max 256 bytes)
-    ReadFile = 0x09,
-
-    /// WriteFile: request to write/update a file on the remote side
-    /// Payload: [path_len:u16][path:[]u8][data_len:u32][data:[]u8]
-    WriteFile = 0x0A,
-
-    /// ListDir: request to list directory contents
-    /// Payload: path (null-terminated string, max 256 bytes)
-    ListDir = 0x0B,
 
     /// Unknown: used for graceful handling of unrecognized commands
     _,
@@ -68,54 +56,14 @@ pub fn validatePayload(allocator: std.mem.Allocator, cmd: Command, payload: []co
     }
 
     switch (cmd) {
-        .ReadFile => {
-            if (payload.len == 0 or payload.len > 256) {
-                return ProtocolError.MalformedPayload;
-            }
-            if (payload[payload.len - 1] != 0) {
-                return ProtocolError.MalformedPayload;
-            }
-        },
-
-        .WriteFile => {
-            if (payload.len < 6) {
-                return ProtocolError.MalformedPayload;
-            }
-            const path_len = std.mem.readInt(u16, payload[0..2][0..2], .big);
-            if (2 + path_len > payload.len) {
-                return ProtocolError.MalformedPayload;
-            }
-            if (2 + path_len + 4 > payload.len) {
-                return ProtocolError.MalformedPayload;
-            }
-            const data_len = std.mem.readInt(u32, payload[2 + path_len .. 6 + path_len][0..4], .big);
-            if (2 + path_len + 4 + data_len != payload.len) {
-                return ProtocolError.MalformedPayload;
-            }
-        },
-
-        .ListDir => {
-            if (payload.len == 0 or payload.len > 256) {
-                return ProtocolError.MalformedPayload;
-            }
-            if (payload[payload.len - 1] != 0) {
-                return ProtocolError.MalformedPayload;
-            }
-        },
-
         .Execute => {
-            if (payload.len < 2) {
-                return ProtocolError.MalformedPayload;
-            }
-            const cmd_len = std.mem.readInt(u16, payload[0..2], .big);
-            if (2 + cmd_len != payload.len) {
+            const MIN_ACTION_REQUEST_SIZE = 2;
+            if (payload.len < MIN_ACTION_REQUEST_SIZE) {
                 return ProtocolError.MalformedPayload;
             }
         },
 
-        .discovery, .Data, .DataChunk, .DataEnd => {
-            // No specific validation
-        },
+        .discovery, .Data, .DataChunk, .DataEnd => {},
 
         .Flush => {
             if (payload.len > 16) {
@@ -135,96 +83,18 @@ pub fn validatePayload(allocator: std.mem.Allocator, cmd: Command, payload: []co
             }
         },
 
-        _ => {
-            // Unknown command
-        },
+        _ => {},
     }
 
     _ = allocator;
-}
-
-pub fn extractPath(allocator: std.mem.Allocator, payload: []const u8) ProtocolError![]u8 {
-    if (payload.len == 0 or payload[payload.len - 1] != 0) {
-        return ProtocolError.MalformedPayload;
-    }
-
-    const path_cstr = payload[0 .. payload.len - 1 :0];
-    const path = try allocator.dupe(u8, path_cstr);
-    return path;
-}
-
-pub const WriteFilePayload = struct {
-    path: []u8,
-    data: []u8,
-};
-
-pub fn extractWriteFilePayload(allocator: std.mem.Allocator, payload: []const u8) ProtocolError!WriteFilePayload {
-    if (payload.len < 6) {
-        return ProtocolError.MalformedPayload;
-    }
-
-    const path_len = std.mem.readInt(u16, payload[0..2][0..2], .big);
-    const path_bytes = payload[2 .. 2 + path_len];
-    const data_len = std.mem.readInt(u32, payload[2 + path_len .. 6 + path_len][0..4], .big);
-    const data_bytes = payload[6 + path_len .. 6 + path_len + data_len];
-
-    const path = try allocator.dupe(u8, path_bytes);
-    errdefer allocator.free(path);
-
-    const data = try allocator.dupe(u8, data_bytes);
-    errdefer allocator.free(data);
-
-    return WriteFilePayload{ .path = path, .data = data };
-}
-
-pub fn extractExecuteCommand(allocator: std.mem.Allocator, payload: []const u8) ProtocolError![]u8 {
-    if (payload.len < 2) {
-        return ProtocolError.MalformedPayload;
-    }
-
-    const cmd_len = std.mem.readInt(u16, payload[0..2][0..2], .big);
-    const cmd_bytes = payload[2 .. 2 + cmd_len];
-
-    const cmd = try allocator.dupe(u8, cmd_bytes);
-    return cmd;
-}
-
-test "validate ReadFile payload" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    const valid_payload = "test.txt\x00";
-    try validatePayload(arena.allocator(), .ReadFile, valid_payload);
-
-    const invalid_payload = "test.txt";
-    try std.testing.expectError(ProtocolError.MalformedPayload, validatePayload(arena.allocator(), .ReadFile, invalid_payload));
-}
-
-test "validate WriteFile payload" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    var buf: [256]u8 = undefined;
-    var i: usize = 0;
-
-    std.mem.writeInt(u16, buf[i..][0..2], 5, .big);
-    i += 2;
-    @memcpy(buf[i .. i + 5], "hello");
-    i += 5;
-    std.mem.writeInt(u32, buf[i..][0..4], 5, .big);
-    i += 4;
-    @memcpy(buf[i .. i + 5], "world");
-    i += 5;
-
-    try validatePayload(arena.allocator(), .WriteFile, buf[0..i]);
 }
 
 test "parse command" {
     const cmd1 = parseCommand(0x01);
     try std.testing.expectEqual(Command.discovery, cmd1);
 
-    const cmd_readfile = parseCommand(0x09);
-    try std.testing.expectEqual(Command.ReadFile, cmd_readfile);
+    const cmd_execute = parseCommand(0x05);
+    try std.testing.expectEqual(Command.Execute, cmd_execute);
 
     const cmd2 = parseCommand(0x06);
     try std.testing.expectEqual(Command.Keepalive, cmd2);
@@ -233,36 +103,15 @@ test "parse command" {
     try std.testing.expectEqual(@as(u8, 0xFF), @intFromEnum(cmd_unknown));
 }
 
-test "validate ListDir payload" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    const valid_payload = "some/dir\x00";
-    try validatePayload(arena.allocator(), .ListDir, valid_payload);
-
-    const invalid_payload = "no-null-terminator";
-    try std.testing.expectError(ProtocolError.MalformedPayload, validatePayload(arena.allocator(), .ListDir, invalid_payload));
-
-    const empty_payload = "";
-    try std.testing.expectError(ProtocolError.MalformedPayload, validatePayload(arena.allocator(), .ListDir, empty_payload));
-}
-
 test "validate Execute payload" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    var buf: [16]u8 = undefined;
-    std.mem.writeInt(u16, buf[0..2], 4, .big);
-    @memcpy(buf[2..6], "ping");
-
-    try validatePayload(arena.allocator(), .Execute, buf[0..6]);
-
-    const too_short = [_]u8{0x00};
+    const too_short = [_]u8{0x00} ** 1;
     try std.testing.expectError(ProtocolError.MalformedPayload, validatePayload(arena.allocator(), .Execute, &too_short));
 
-    var bad_len_buf: [4]u8 = undefined;
-    std.mem.writeInt(u16, bad_len_buf[0..2], 100, .big); // behauptet 100 Byte cmd, hat aber nur 2
-    try std.testing.expectError(ProtocolError.MalformedPayload, validatePayload(arena.allocator(), .Execute, &bad_len_buf));
+    const min_valid = [_]u8{0x00} ** 2;
+    try validatePayload(arena.allocator(), .Execute, &min_valid);
 }
 
 test "validate Flush/Close/Keepalive payload length limits" {
@@ -286,62 +135,4 @@ test "validate payload rejects oversized payload regardless of command" {
 
     const huge = try arena.allocator().alloc(u8, 1024 * 1024 + 1);
     try std.testing.expectError(ProtocolError.PayloadTooLarge, validatePayload(arena.allocator(), .Data, huge));
-}
-
-test "extractPath gibt korrekten Pfad zurück" {
-    const allocator = std.testing.allocator;
-    const payload = "foo/bar.txt\x00";
-    const path = try extractPath(allocator, payload);
-    defer allocator.free(path);
-    try std.testing.expectEqualSlices(u8, "foo/bar.txt", path);
-}
-
-test "extractPath lehnt fehlenden Null-Terminator ab" {
-    const allocator = std.testing.allocator;
-    try std.testing.expectError(ProtocolError.MalformedPayload, extractPath(allocator, "no-terminator"));
-}
-
-test "extractPath lehnt leeren Payload ab" {
-    const allocator = std.testing.allocator;
-    try std.testing.expectError(ProtocolError.MalformedPayload, extractPath(allocator, ""));
-}
-
-test "extractWriteFilePayload Roundtrip" {
-    const allocator = std.testing.allocator;
-    var buf: [256]u8 = undefined;
-    var i: usize = 0;
-
-    std.mem.writeInt(u16, buf[i..][0..2], 5, .big);
-    i += 2;
-    @memcpy(buf[i .. i + 5], "hello");
-    i += 5;
-    std.mem.writeInt(u32, buf[i..][0..4], 5, .big);
-    i += 4;
-    @memcpy(buf[i .. i + 5], "world");
-    i += 5;
-
-    const result = try extractWriteFilePayload(allocator, buf[0..i]);
-    defer allocator.free(result.path);
-    defer allocator.free(result.data);
-
-    try std.testing.expectEqualSlices(u8, "hello", result.path);
-    try std.testing.expectEqualSlices(u8, "world", result.data);
-}
-
-test "extractExecuteCommand Roundtrip" {
-    const allocator = std.testing.allocator;
-    var buf: [16]u8 = undefined;
-    std.mem.writeInt(u16, buf[0..2], 4, .big);
-    @memcpy(buf[2..6], "ping");
-
-    const cmd = try extractExecuteCommand(allocator, buf[0..6]);
-    defer allocator.free(cmd);
-
-    try std.testing.expectEqualSlices(u8, "ping", cmd);
-}
-
-test "extractExecuteCommand lehnt zu kurzen Payload ab" {
-    const allocator = std.testing.allocator;
-    const too_short = [_]u8{0x00};
-    try std.testing.expectError(ProtocolError.MalformedPayload, extractExecuteCommand(allocator, &too_short));
 }

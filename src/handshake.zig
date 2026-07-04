@@ -72,6 +72,7 @@ pub const SessionKeys = struct {
     tx: [DERIVED_KEY_SIZE]u8,
     rx: [DERIVED_KEY_SIZE]u8,
     peer_address: [SIP_ADDRESS_SIZE]u8,
+    peer_identity_pubkey: [IDENTITY_PUBLIC_KEY_SIZE]u8,
     conn_id: u64,
 
     pub fn deinit(self: *SessionKeys) void {
@@ -138,6 +139,7 @@ pub fn completeHandshake(
         .tx = tx,
         .rx = rx,
         .peer_address = peer_address,
+        .peer_identity_pubkey = peer_message.identity_public_key,
         .conn_id = conn_id,
     };
 }
@@ -251,6 +253,9 @@ test "handshake derives matching, opposite-direction session keys" {
     try std.testing.expectEqualSlices(u8, &alice_session.rx, &bob_session.tx);
     try std.testing.expectEqualSlices(u8, &alice_session.peer_address, &bob_address);
     try std.testing.expectEqualSlices(u8, &bob_session.peer_address, &alice_address);
+
+    try std.testing.expectEqualSlices(u8, &alice_session.peer_identity_pubkey, &bob_keys.public);
+    try std.testing.expectEqualSlices(u8, &bob_session.peer_identity_pubkey, &alice_keys.public);
 }
 
 test "tampered ephemeral key fails signature verification" {
@@ -404,7 +409,6 @@ test "performKeyExchange rejects malformed frame from peer" {
     };
     const alice_address = identity.baseAddress(alice_keys.public);
 
-    // Bob schickt absichtlich Müll statt einer gültigen HandshakeMessage.
     const bob_thread = try std.Thread.spawn(.{}, struct {
         fn run(sock: synet.Socket) !void {
             try sendFramed(sock, "not a valid handshake message");
