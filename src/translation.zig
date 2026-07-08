@@ -9,6 +9,13 @@ pub const TAG_SIZE: usize = 16;
 
 pub const MAX_PACKET_SIZE: usize = 16 * 1024 * 1024; // 16 MiB
 
+pub fn deriveNonce(conn_id: u64, seq_num: u32) [NONCE_SIZE]u8 {
+    var nonce: [NONCE_SIZE]u8 = undefined;
+    std.mem.writeInt(u64, nonce[0..8], conn_id, .little);
+    std.mem.writeInt(u32, nonce[8..12], seq_num, .little);
+    return nonce;
+}
+
 pub const TranslationError = error{
     PacketTooSmall,
     AuthFailed,
@@ -29,6 +36,7 @@ pub fn buildOutboundPacket(
     payload: []const u8,
     key: [KEY_SIZE]u8,
 ) ![]u8 {
+    _ = io;
     var len_buf: [4]u8 = undefined;
     std.mem.writeInt(u32, &len_buf, @intCast(payload.len), .big);
 
@@ -43,9 +51,7 @@ pub fn buildOutboundPacket(
     @memcpy(hdr_slice[6..22], &src);
     @memcpy(hdr_slice[22..38], &dst);
 
-    var nonce: [NONCE_SIZE]u8 = undefined;
-    const rng: std.Random.IoSource = .{ .io = io };
-    rng.interface().bytes(&nonce);
+    const nonce = deriveNonce(conn_id, seq_num);
     @memcpy(out[header.OUTER_HEADER_SIZE..][0..NONCE_SIZE], &nonce);
 
     const plain_len = header.INNER_HEADER_SIZE + payload.len;
@@ -80,6 +86,7 @@ pub fn buildOutboundPacketInto(
     payload: []const u8,
     key: [KEY_SIZE]u8,
 ) ![]u8 {
+    _ = io;
     var len_buf: [4]u8 = undefined;
     std.mem.writeInt(u32, &len_buf, @intCast(payload.len), .big);
 
@@ -94,9 +101,7 @@ pub fn buildOutboundPacketInto(
     @memcpy(hdr_slice[6..22], &src);
     @memcpy(hdr_slice[22..38], &dst);
 
-    var nonce: [NONCE_SIZE]u8 = undefined;
-    const rng: std.Random.IoSource = .{ .io = io };
-    rng.interface().bytes(&nonce);
+    const nonce = deriveNonce(conn_id, seq_num);
     @memcpy(out[header.OUTER_HEADER_SIZE..][0..NONCE_SIZE], &nonce);
 
     const plain_len = header.INNER_HEADER_SIZE + payload.len;

@@ -82,7 +82,6 @@ pub const SessionKeys = struct {
 };
 
 pub fn completeHandshake(
-    local_keys: identity.KeyPair,
     local_address: [SIP_ADDRESS_SIZE]u8,
     local_ephemeral: EphemeralKeyPair,
     peer_message: HandshakeMessage,
@@ -103,8 +102,6 @@ pub fn completeHandshake(
     ) catch {
         return KeyExchangeError.InvalidPeerPublicKey;
     };
-
-    _ = local_keys;
 
     var transcript: [SIP_ADDRESS_SIZE * 2 + PUBLIC_KEY_SIZE * 2]u8 = undefined;
     const a_first = std.mem.lessThan(u8, &local_address, &peer_address);
@@ -215,7 +212,7 @@ pub fn performKeyExchange(
         try sendFramed(sock, &local_buf);
     }
 
-    return completeHandshake(local_keys, local_address, local_ephemeral, peer_msg, peer_address);
+    return completeHandshake(local_address, local_ephemeral, peer_msg, peer_address);
 }
 
 test "handshake derives matching, opposite-direction session keys" {
@@ -244,9 +241,9 @@ test "handshake derives matching, opposite-direction session keys" {
     const msg_from_alice = try HandshakeMessage.create(alice_keys, alice_eph);
     const msg_from_bob = try HandshakeMessage.create(bob_keys, bob_eph);
 
-    var alice_session = try completeHandshake(alice_keys, alice_address, alice_eph, msg_from_bob, bob_address);
+    var alice_session = try completeHandshake(alice_address, alice_eph, msg_from_bob, bob_address);
     defer alice_session.deinit();
-    var bob_session = try completeHandshake(bob_keys, bob_address, bob_eph, msg_from_alice, alice_address);
+    var bob_session = try completeHandshake(bob_address, bob_eph, msg_from_alice, alice_address);
     defer bob_session.deinit();
 
     try std.testing.expectEqualSlices(u8, &alice_session.tx, &bob_session.rx);
@@ -304,7 +301,7 @@ test "unexpected peer identity is rejected" {
 
     try std.testing.expectError(
         KeyExchangeError.IdentityMismatch,
-        completeHandshake(alice_keys, alice_address, alice_eph, msg_from_mallory, expected_bob_address),
+        completeHandshake(alice_address, alice_eph, msg_from_mallory, expected_bob_address),
     );
 }
 

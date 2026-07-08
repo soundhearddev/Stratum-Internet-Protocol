@@ -168,6 +168,11 @@ pub fn parsePacket(data: []const u8) !ParsedPacket {
     if (data.len < HEADER_SIZE) return error.PacketTooSmall;
     const header = readHeader(data[0..HEADER_SIZE]);
     if (header.outer.magic != MAGIC) return error.InvalidMagic;
+
+    const declared_len = std.mem.readInt(u32, &header.outer.length, .big);
+    const actual_len = data.len - HEADER_SIZE;
+    if (declared_len != actual_len) return error.LengthMismatch;
+
     return ParsedPacket{
         .header = header,
         .command = protocol.parseCommand(header.outer.command),
@@ -281,6 +286,34 @@ test "parsePacket lehnt falsches Magic ab" {
 test "parsePacket lehnt zu kurze Daten ab" {
     const too_short = [_]u8{0} ** 10;
     try testing.expectError(error.PacketTooSmall, parsePacket(&too_short));
+}
+
+test "parsePacket lehnt length-Feld ab, das nicht zur echten Payload passt (Trailing Garbage)" {
+    const payload = "hallo welt";
+    var buf: [HEADER_SIZE + payload.len]u8 = undefined;
+    const src = [_]u8{0x01} ** 16;
+    const dst = [_]u8{0x02} ** 16;
+
+    const pkt = try buildPacket(&buf, src, dst, 0, 0, .Data, payload);
+
+    // Extra Bytes anhängen, ohne das length-Feld anzupassen -> muss abgelehnt werden.
+    var tampered: [HEADER_SIZE + payload.len + 4]u8 = undefined;
+    @memcpy(tampered[0..pkt.len], pkt);
+    @memcpy(tampered[pkt.len..], "GARB");
+
+    try testing.expectError(error.LengthMismatch, parsePacket(&tampered));
+}
+
+test "parsePacket lehnt length-Feld ab, das größer als die tatsächliche Payload ist (Truncation)" {
+    const payload = "hallo welt";
+    var buf: [HEADER_SIZE + payload.len]u8 = undefined;
+    const src = [_]u8{0x01} ** 16;
+    const dst = [_]u8{0x02} ** 16;
+
+    const pkt = try buildPacket(&buf, src, dst, 0, 0, .Data, payload);
+
+    // Nur einen Teil des Pakets "empfangen" (length-Feld zeigt noch die volle Größe).
+    try testing.expectError(error.LengthMismatch, parsePacket(pkt[0 .. pkt.len - 3]));
 }
 
 test "buildPacket lehnt zu kleinen Buffer ab" {

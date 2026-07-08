@@ -17,7 +17,10 @@ pub const SipError = error{
     InvalidLength,
 };
 
+pub const MAX_NAME_LEN: usize = 64;
+
 pub fn formatSipAddress(buf: []u8, name: []const u8, base: [16]u8) ![]const u8 {
+    if (name.len == 0 or name.len > MAX_NAME_LEN) return error.InvalidLength;
     return std.fmt.bufPrint(buf, "{s}.{x}", .{ name, base });
 }
 
