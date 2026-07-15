@@ -32,6 +32,10 @@ pub const Command = enum(u8) {
     /// Payload: empty
     Close = 0x08,
 
+    /// Query: Generische Abfrage an das System/die Registry
+    /// Payload: [Sub-Command (1 Byte) | Daten (Variable Länge)]
+    Query = 0x09,
+
     /// Unknown: used for graceful handling of unrecognized commands
     _,
 };
@@ -79,6 +83,13 @@ pub fn validatePayload(allocator: std.mem.Allocator, cmd: Command, payload: []co
 
         .Keepalive => {
             if (payload.len > 16) {
+                return ProtocolError.MalformedPayload;
+            }
+        },
+
+        .Query => {
+            const MIN_QUERY_SIZE = 1;
+            if (payload.len < MIN_QUERY_SIZE) {
                 return ProtocolError.MalformedPayload;
             }
         },

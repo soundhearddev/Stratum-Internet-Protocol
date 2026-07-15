@@ -608,7 +608,7 @@ test "Reassembler: UnexpectedSequenceNumber räumt neuen State auf" {
     const dst = [_]u8{0x02} ** 16;
 
     var buf: [header.HEADER_SIZE + 4]u8 = undefined;
-    _ = try header.buildPacket(&buf, src, dst, conn_id, 1, .DataChunk, "data"); // seq 1 statt 0
+    _ = try header.buildPacket(&buf, src, dst, conn_id, 1, .DataChunk, "data");
     const parsed = try header.parsePacket(&buf);
 
     try testing.expectError(ReassemblyError.UnexpectedSequenceNumber, r.feed(parsed));

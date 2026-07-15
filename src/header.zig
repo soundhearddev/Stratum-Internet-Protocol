@@ -296,7 +296,6 @@ test "parsePacket lehnt length-Feld ab, das nicht zur echten Payload passt (Trai
 
     const pkt = try buildPacket(&buf, src, dst, 0, 0, .Data, payload);
 
-    // Extra Bytes anhängen, ohne das length-Feld anzupassen -> muss abgelehnt werden.
     var tampered: [HEADER_SIZE + payload.len + 4]u8 = undefined;
     @memcpy(tampered[0..pkt.len], pkt);
     @memcpy(tampered[pkt.len..], "GARB");
@@ -312,7 +311,6 @@ test "parsePacket lehnt length-Feld ab, das größer als die tatsächliche Paylo
 
     const pkt = try buildPacket(&buf, src, dst, 0, 0, .Data, payload);
 
-    // Nur einen Teil des Pakets "empfangen" (length-Feld zeigt noch die volle Größe).
     try testing.expectError(error.LengthMismatch, parsePacket(pkt[0 .. pkt.len - 3]));
 }
 
